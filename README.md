@@ -145,11 +145,16 @@ Override by editing `model-policy.json` in the installed package or setting poli
 
 ## Windows
 
-Native Windows execution of the Cursor worker is not verified; use **WSL**:
+On Windows, the delegate uses a **local** Cursor CLI run when either:
 
-- MCP config can use `wsl.exe` + `uvx mcp-portal`
+- `MCP_PORTAL_CLI` points at an executable (including test stubs), or
+- `cursor-agent` / `agent` is found on `PATH` and is a real file.
+
+Otherwise it falls back to the **`wsl.exe` bridge** into Ubuntu/WSL (`python3 -m mcp_portal.delegate --worker`). Force either mode with `MCP_PORTAL_BACKEND=local` or `MCP_PORTAL_BACKEND=wsl`.
+
+- MCP config can use native `uvx mcp-portal` when the CLI is on PATH, or `wsl.exe` + `uvx mcp-portal` when it is not
 - Helpers in `clients/windows/` (`delegate.ps1`, `parse_read.ps1`)
-- Set `MCP_PORTAL_WORKER` to customize the WSL worker (default: `wsl.exe -- python3 -m mcp_portal.delegate --worker`)
+- `MCP_PORTAL_WORKER` overrides the default WSL worker command
 - `MCP_PORTAL_WSL_CD` sets the WSL working directory (default `~`)
 
 ## Optional Claude Code routing hook

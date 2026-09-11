@@ -199,6 +199,52 @@ def resolve_cli():
     return Path.home() / ".local/bin/agent"
 
 
+def _forced_backend() -> str | None:
+    raw = (os.environ.get("MCP_PORTAL_BACKEND") or "").strip().lower()
+    if raw in ("wsl", "local"):
+        return raw
+    return None
+
+
+def _native_cli_on_path() -> bool:
+    for name in ("cursor-agent", "agent"):
+        found = shutil.which(name)
+        if found and Path(found).is_file():
+            return True
+    return False
+
+
+def _windows_prefers_local_cli() -> bool:
+    forced = _forced_backend()
+    if forced == "local":
+        return True
+    if forced == "wsl":
+        return False
+    if os.environ.get("MCP_PORTAL_CLI"):
+        return True
+    return _native_cli_on_path()
+
+
+def execution_uses_wsl_bridge(route: str = "auto") -> bool:
+    """Whether execute() will call the Windows WSL worker bridge (testable routing)."""
+    return _use_wsl_bridge(route)
+
+
+def _use_wsl_bridge(route: str) -> bool:
+    forced = _forced_backend()
+    if forced == "wsl":
+        return True
+    if forced == "local":
+        return False
+    if route == "wsl":
+        return True
+    if os.name != "nt":
+        return False
+    if route == "auto":
+        return not _windows_prefers_local_cli()
+    return False
+
+
 def _cli_argv(exe: Path, tail: list[str]) -> list[str]:
     if exe.suffix.lower() == ".py":
         return [sys.executable, str(exe), *tail]
@@ -665,18 +711,7 @@ def parse_stream(stdout, request=None, *, as_code=False):
     return answer, meta
 
 
-def _use_wsl_bridge(route: str) -> bool:
-    if route == "wsl":
-        return True
-    if route != "auto" or os.name != "nt":
-        return False
-    # Harness and explicit MCP_PORTAL_CLI overrides run the CLI locally (see server tests).
-    return not os.environ.get("MCP_PORTAL_CLI")
-
-
 def backend(request):
-    if os.name == "nt" and not os.environ.get("MCP_PORTAL_CLI"):
-        raise Refused("NATIVE_WINDOWS_NOT_VERIFIED_USE_WSL")
     if os.environ.get("CURSOR_DELEGATE_DEPTH"):
         raise Refused("NESTED_DELEGATION")
     validate_request(request)

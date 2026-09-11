@@ -243,5 +243,49 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertEqual(policy["preferred"][0], "composer-2.5")
 
 
+class WindowsBridgeRoutingTests(unittest.TestCase):
+    def _nt(self):
+        return patch.object(d.os, "name", "nt")
+
+    def test_auto_uses_local_when_mcp_portal_cli_set(self):
+        with self._nt(), patch.dict(os.environ, {"MCP_PORTAL_CLI": "C:\\stub\\cli.py"}, clear=False):
+            self.assertFalse(d.execution_uses_wsl_bridge("auto"))
+
+    def test_native_cli_on_path_detects_which_hit(self):
+        with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as tmp:
+            cli = Path(tmp.name)
+        cli.write_text("stub", encoding="utf-8")
+        try:
+            with patch.object(d.shutil, "which", side_effect=lambda name: str(cli) if name == "cursor-agent" else None):
+                self.assertTrue(d._native_cli_on_path())
+        finally:
+            cli.unlink(missing_ok=True)
+
+    def test_auto_uses_local_when_native_cli_on_path(self):
+        with self._nt(), patch.object(d, "_native_cli_on_path", return_value=True):
+            self.assertFalse(d.execution_uses_wsl_bridge("auto"))
+
+    def test_auto_uses_wsl_when_no_local_cli(self):
+        with self._nt():
+            env = {k: v for k, v in os.environ.items() if k not in ("MCP_PORTAL_CLI", "MCP_PORTAL_BACKEND")}
+            with patch.dict(os.environ, env, clear=True):
+                with patch.object(d.shutil, "which", return_value=None):
+                    self.assertTrue(d.execution_uses_wsl_bridge("auto"))
+
+    def test_mcp_portal_backend_forces_wsl(self):
+        with self._nt(), patch.dict(os.environ, {"MCP_PORTAL_BACKEND": "wsl"}, clear=False):
+            with patch.object(d.shutil, "which", return_value="C:\\Tools\\cursor-agent.exe"):
+                self.assertTrue(d.execution_uses_wsl_bridge("auto"))
+
+    def test_mcp_portal_backend_forces_local(self):
+        with self._nt(), patch.dict(os.environ, {"MCP_PORTAL_BACKEND": "local"}, clear=False):
+            with patch.object(d.shutil, "which", return_value=None):
+                self.assertFalse(d.execution_uses_wsl_bridge("auto"))
+
+    def test_linux_auto_never_uses_wsl_bridge(self):
+        with patch.object(d.os, "name", "posix"):
+            self.assertFalse(d.execution_uses_wsl_bridge("auto"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
