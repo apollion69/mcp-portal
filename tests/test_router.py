@@ -9,11 +9,19 @@ from unittest.mock import patch
 from mcp_portal import router
 
 
+def _deny_enforce(client: str) -> dict[str, str]:
+    return {router.surface_key(client): 'deny'}
+
+
+def _warn_enforce(client: str) -> dict[str, str]:
+    return {router.surface_key(client): 'warn'}
+
+
 class RoutingTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         (self.root / 'large file.txt').write_text('example\n' * 351, encoding='utf-8')
         (self.root / 'small.txt').write_text('example\n' * 350, encoding='utf-8')
 
@@ -21,9 +29,8 @@ class RoutingTests(unittest.TestCase):
         return {'cwd': str(self.root), 'tool_name': 'Read', 'tool_input': data}
 
     def test_full_read_is_denied_before_contents(self):
-        enforce = {'claude-wsl': 'deny'}
         health = {'ok': True, 'checked_at': '2099-01-01T00:00:00Z'}
-        with self._portal_env(enforce=enforce, health=health):
+        with self._portal_env(enforce=_deny_enforce('claude'), health=health):
             result = router.route(self.payload(file_path='large file.txt'), 'claude', 'bash')
         self.assertEqual(result['hookSpecificOutput']['permissionDecision'], 'deny')
         self.assertIn('mcp_portal.bulk_read', result['hookSpecificOutput']['permissionDecisionReason'])
@@ -55,29 +62,31 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(router.shell_paths('tail -n +1 large.txt'), ['large.txt'])
         self.assertEqual(router.shell_paths('tail --lines=+1 large.txt'), ['large.txt'])
         self.assertEqual(router.shell_paths('head --lines=-10 large.txt'), ['large.txt'])
-        self.assertEqual(router.shell_paths('cd nested && cat large.txt', str(self.root)), [str(self.root / 'nested/large.txt')])
+        nested = self.root / 'nested'
+        nested.mkdir(exist_ok=True)
+        (nested / 'large.txt').write_text('x\n', encoding='utf-8')
+        expected = str((nested / 'large.txt').resolve())
+        self.assertEqual(router.shell_paths('cd nested && cat large.txt', str(self.root)), [expected])
 
     def test_shell_targeted_and_nonread_allowed(self):
         for command in ('head a', 'tail a', 'head -n 12 a', 'tail -20 a', 'cat a | grep x', 'cat a > b', 'git status'):
             self.assertEqual(router.shell_paths(command), [])
 
     def test_oversized_file_cannot_hide_later_lines(self):
-        path = self.root / 'long.txt'
+        path = (self.root / 'long.txt').resolve()
         path.write_text('a' * 150000 + '\n' * 400, encoding='utf-8')
         self.assertEqual(router.large_paths(['long.txt'], self.root), [path])
 
     def test_cursor_before_read_shape(self):
         payload = {'hook_event_name': 'beforeReadFile', 'cwd': str(self.root), 'file_path': 'large file.txt'}
-        enforce = {'cursor-wsl': 'deny'}
         health = {'ok': True, 'checked_at': '2099-01-01T00:00:00Z'}
-        with self._portal_env(enforce=enforce, health=health):
+        with self._portal_env(enforce=_deny_enforce('cursor'), health=health):
             self.assertEqual(router.route(payload, 'cursor', 'bash')['permission'], 'deny')
 
     def test_codex_command_shape(self):
         payload = {'tool_name': 'Bash', 'cwd': str(self.root), 'tool_input': {'command': 'cat "large file.txt"'}}
-        enforce = {'codex-wsl': 'deny'}
         health = {'ok': True, 'checked_at': '2099-01-01T00:00:00Z'}
-        with self._portal_env(enforce=enforce, health=health):
+        with self._portal_env(enforce=_deny_enforce('codex'), health=health):
             self.assertEqual(router.route(payload, 'codex', 'bash')['hookSpecificOutput']['permissionDecision'], 'deny')
             payload['cwd'] = str(self.root.parent)
             payload['tool_input']['workdir'] = str(self.root)
@@ -108,8 +117,7 @@ class RoutingTests(unittest.TestCase):
         (self.root / 'portal-home').mkdir()
         health = {'ok': True, 'checked_at': '2099-01-01T00:00:00Z'}
         (self.root / 'portal-home' / 'health.json').write_text(json.dumps(health), encoding='utf-8')
-        enforce = {'claude-wsl': 'deny'}
-        (self.root / 'portal-home' / 'enforce.json').write_text(json.dumps(enforce), encoding='utf-8')
+        (self.root / 'portal-home' / 'enforce.json').write_text(json.dumps(_deny_enforce('claude')), encoding='utf-8')
         env['PYTHONPATH'] = str(Path(__file__).resolve().parents[1] / 'src')
         result = subprocess.run([sys.executable, '-m', 'mcp_portal.router', '--client', 'claude', '--shell', 'bash', '--receipt-dir', str(self.root / 'receipts')],
                                 input=json.dumps(self.payload(file_path='large file.txt')), text=True, capture_output=True, env=env)
@@ -125,14 +133,12 @@ class RoutingTests(unittest.TestCase):
         small.write_text('line\n' * 360, encoding='utf-8')
         with patch.dict(os.environ, {'MCP_PORTAL_MIN_LINES': '400'}):
             self.assertEqual(router.route(self.payload(file_path='medium.txt'), 'claude', 'bash'), {})
-        enforce = {'claude-wsl': 'deny'}
         health = {'ok': True, 'checked_at': '2099-01-01T00:00:00Z'}
-        with self._portal_env(enforce=enforce, health=health), patch.dict(os.environ, {'MCP_PORTAL_MIN_LINES': '300'}):
+        with self._portal_env(enforce=_deny_enforce('claude'), health=health), patch.dict(os.environ, {'MCP_PORTAL_MIN_LINES': '300'}):
             self.assertEqual(router.route(self.payload(file_path='medium.txt'), 'claude', 'bash')['hookSpecificOutput']['permissionDecision'], 'deny')
 
     def test_warn_mode_additional_context_only(self):
-        enforce = {'claude-wsl': 'warn'}
-        with self._portal_env(enforce=enforce):
+        with self._portal_env(enforce=_warn_enforce('claude')):
             result = router.route(self.payload(file_path='large file.txt'), 'claude', 'bash')
         out = result['hookSpecificOutput']
         self.assertIn('additionalContext', out)
@@ -140,15 +146,13 @@ class RoutingTests(unittest.TestCase):
         self.assertIn('mcp__mcp-portal__bulk_read', out['additionalContext'])
 
     def test_deny_mode_permission_decision(self):
-        enforce = {'claude-wsl': 'deny'}
         health = {'ok': True, 'checked_at': '2099-01-01T00:00:00Z'}
-        with self._portal_env(enforce=enforce, health=health):
+        with self._portal_env(enforce=_deny_enforce('claude'), health=health):
             result = router.route(self.payload(file_path='large file.txt'), 'claude', 'bash')
         self.assertEqual(result['hookSpecificOutput']['permissionDecision'], 'deny')
 
     def test_deny_without_fresh_health_downgrades_to_warn(self):
-        enforce = {'claude-wsl': 'deny'}
-        with self._portal_env(enforce=enforce):
+        with self._portal_env(enforce=_deny_enforce('claude')):
             result = router.route(self.payload(file_path='large file.txt'), 'claude', 'bash')
         self.assertIn('additionalContext', result['hookSpecificOutput'])
         self.assertNotIn('permissionDecision', result['hookSpecificOutput'])

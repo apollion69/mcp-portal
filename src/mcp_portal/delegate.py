@@ -80,7 +80,7 @@ def available_models():
     if not exe.is_file():
         return [], "CURSOR_CLI_MISSING"
     try:
-        code, out, err = run_bounded([str(exe), "--list-models"], b"", Path.cwd(), os.environ.copy(), 30)
+        code, out, err = run_bounded(_cli_argv(exe, ["--list-models"]), b"", Path.cwd(), os.environ.copy(), 30)
         blob = out + err
         if code != 0:
             return [], "LIST_MODELS_NONZERO"
@@ -199,6 +199,12 @@ def resolve_cli():
     return Path.home() / ".local/bin/agent"
 
 
+def _cli_argv(exe: Path, tail: list[str]) -> list[str]:
+    if exe.suffix.lower() == ".py":
+        return [sys.executable, str(exe), *tail]
+    return [str(exe), *tail]
+
+
 def cache_key(request):
     op = request["operation"]
     tail = request["question"] if op == "bulk-read" else request["spec"]
@@ -273,13 +279,13 @@ def portal_status():
     authenticated = False
     if cli.is_file():
         try:
-            code, out, err = run_bounded([str(cli), "--version"], b"", Path.cwd(), os.environ.copy(), 5)
+            code, out, err = run_bounded(_cli_argv(cli, ["--version"]), b"", Path.cwd(), os.environ.copy(), 5)
             if code == 0:
                 cli_version = out.strip() or err.strip()
         except Refused:
             pass
         try:
-            code, out, err = run_bounded([str(cli), "status"], b"", Path.cwd(), os.environ.copy(), 5)
+            code, out, err = run_bounded(_cli_argv(cli, ["status"]), b"", Path.cwd(), os.environ.copy(), 5)
             blob = (out + err).lower()
             authenticated = code == 0 and "not authenticated" not in blob and "log in" not in blob
         except Refused:
@@ -594,8 +600,19 @@ def run_bounded(argv, stdin, cwd, env, timeout, max_output=MAX_STREAM):
 @contextmanager
 def exclusive_lock(path):
     # All prototype routes use the same WSL backend and thus this one local lock.
-    import fcntl
     path.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+        except FileExistsError:
+            raise Refused("WORKER_BUSY") from None
+        try:
+            yield
+        finally:
+            path.unlink(missing_ok=True)
+        return
+    import fcntl
     with path.open("a+") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -648,8 +665,17 @@ def parse_stream(stdout, request=None, *, as_code=False):
     return answer, meta
 
 
+def _use_wsl_bridge(route: str) -> bool:
+    if route == "wsl":
+        return True
+    if route != "auto" or os.name != "nt":
+        return False
+    # Harness and explicit MCP_PORTAL_CLI overrides run the CLI locally (see server tests).
+    return not os.environ.get("MCP_PORTAL_CLI")
+
+
 def backend(request):
-    if os.name == "nt":
+    if os.name == "nt" and not os.environ.get("MCP_PORTAL_CLI"):
         raise Refused("NATIVE_WINDOWS_NOT_VERIFIED_USE_WSL")
     if os.environ.get("CURSOR_DELEGATE_DEPTH"):
         raise Refused("NESTED_DELEGATION")
@@ -677,7 +703,23 @@ def backend(request):
         manifest = {"run_id": run_id, "model": request["model"], "status": "RUNNING", "files": [{"path": f["path"], "sha256": f["sha256"]} for f in request["files"]]}
         try:
             prompt = make_code_write_prompt(request) if request["operation"] == "code-write" else make_prompt(request)
-            argv = [str(exe), "--print", "--mode", "ask", "--output-format", "stream-json", "--model", request["model"], "--workspace", str(work), "--trust", "--sandbox", "enabled"]
+            argv = _cli_argv(
+                exe,
+                [
+                    "--print",
+                    "--mode",
+                    "ask",
+                    "--output-format",
+                    "stream-json",
+                    "--model",
+                    request["model"],
+                    "--workspace",
+                    str(work),
+                    "--trust",
+                    "--sandbox",
+                    "enabled",
+                ],
+            )
             code, out, err = run_bounded(argv, prompt.encode("utf-8"), work, env, request["timeout"])
             manifest["cli_exit_code"] = code
             if code:
@@ -725,7 +767,7 @@ def execute(request, route="auto", worker=DEFAULT_WORKER, tool="bulk_read", mode
         return hit
     started = time.monotonic()
     try:
-        if route == "wsl" or (route == "auto" and os.name == "nt"):
+        if _use_wsl_bridge(route):
             if os.name != "nt":
                 result = backend(request)
             else:

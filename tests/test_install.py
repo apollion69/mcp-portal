@@ -5,9 +5,9 @@ version of the renderer pretty-printed it, turning a one-entry addition into a 9
 edit nobody can review is not an additive edit.
 """
 import json
+import sys
 import unittest
 from pathlib import Path
-import sys
 import tempfile
 
 from mcp_portal import install  # noqa: E402
@@ -84,10 +84,17 @@ class Transform(unittest.TestCase):
         action, after, _ = install.transform("codex-mcp", original, replace=False)
         self.assertEqual(action, "added")
         self.assertTrue(after.startswith(original))
-        import tomllib
-        parsed = tomllib.loads(after.decode("utf-8"))
-        self.assertIn("mcp-portal", parsed["mcp_servers"])
-        self.assertIn("other", parsed["mcp_servers"])
+        text = after.decode("utf-8")
+        section = install._parse_mcp_portal_toml_section(text)
+        self.assertEqual(section, install._wanted_codex_mcp_section())
+        if sys.version_info >= (3, 11):
+            import tomllib
+            parsed = tomllib.loads(text)
+            self.assertIn("mcp-portal", parsed["mcp_servers"])
+            self.assertIn("other", parsed["mcp_servers"])
+        else:
+            print("skip: tomllib.loads full-document read-back requires Python 3.11+; section verified via install regex parser")
+            self.assertIn("[mcp_servers.other]", text)
 
 
 class CanonicalRoot(unittest.TestCase):

@@ -9,7 +9,6 @@ import os
 import re
 import sys
 import tempfile
-import tomllib
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -276,28 +275,54 @@ def _toml_block() -> str:
     )
 
 
+def _wanted_codex_mcp_section() -> dict:
+    return {'command': 'uvx', 'args': ['mcp-portal'], 'tool_timeout_sec': 150}
+
+
+def _parse_mcp_portal_toml_section(text: str) -> dict | None:
+    """Minimal stdlib parser for the single section we write (no tomllib on 3.10)."""
+    marker = '[mcp_servers.mcp-portal]'
+    if marker not in text:
+        return None
+    block = text.split(marker, 1)[1].split('\n[', 1)[0]
+    cmd = re.search(r'^command\s*=\s*"([^"]*)"\s*$', block, re.M)
+    args = re.search(r'^args\s*=\s*\["([^"]*)"\]\s*$', block, re.M)
+    timeout = re.search(r'^tool_timeout_sec\s*=\s*(\d+)\s*$', block, re.M)
+    if not cmd or not args or not timeout:
+        raise Conflict('config.toml parse error: mcp-portal section malformed')
+    return {
+        'command': cmd.group(1),
+        'args': [args.group(1)],
+        'tool_timeout_sec': int(timeout.group(1)),
+    }
+
+
+def _assert_appended_toml_valid(text: str) -> None:
+    for fragment in (
+        '[mcp_servers.mcp-portal]',
+        'command = "uvx"',
+        'args = ["mcp-portal"]',
+        'tool_timeout_sec = 150',
+    ):
+        if fragment not in text:
+            raise Conflict(f'appended TOML invalid: missing {fragment}')
+
+
 def _toml_codex_mcp(before: bytes | None, replace: bool) -> tuple[str, bytes | None, str]:
     if before is None:
         raise Conflict('Destination missing')
     text = before.decode('utf-8')
+    wanted = _wanted_codex_mcp_section()
     if '[mcp_servers.mcp-portal]' in text:
-        try:
-            parsed = tomllib.loads(text)
-            section = parsed.get('mcp_servers', {}).get('mcp-portal')
-        except tomllib.TOMLDecodeError as exc:
-            raise Conflict(f'config.toml parse error: {exc}') from exc
-        wanted = {'command': 'uvx', 'args': ['mcp-portal'], 'tool_timeout_sec': 150}
+        section = _parse_mcp_portal_toml_section(text)
         if section == wanted:
             return 'noop', before, ''
         if not replace:
             return 'conflict', before, 'mcp-portal section differs'
         raise Conflict('TOML replace for existing section is not implemented')
-    after = (text.rstrip() + _toml_block()).encode('utf-8')
-    try:
-        tomllib.loads(after.decode('utf-8'))
-    except tomllib.TOMLDecodeError as exc:
-        raise Conflict(f'appended TOML invalid: {exc}') from exc
-    return 'added', after, ''
+    after_text = text.rstrip() + _toml_block()
+    _assert_appended_toml_valid(after_text)
+    return 'added', after_text.encode('utf-8'), ''
 
 
 def readback(name: str, path: Path, after: bytes) -> None:
@@ -322,9 +347,11 @@ def readback(name: str, path: Path, after: bytes) -> None:
         ):
             raise Conflict('codex hook missing')
     elif name == 'codex-mcp':
-        if '[mcp_servers.mcp-portal]' not in current.decode('utf-8'):
+        body = current.decode('utf-8')
+        if '[mcp_servers.mcp-portal]' not in body:
             raise Conflict('TOML section missing')
-        tomllib.loads(current.decode('utf-8'))
+        if _parse_mcp_portal_toml_section(body) != _wanted_codex_mcp_section():
+            raise Conflict('TOML section missing or differs')
 
 
 def destination_lock(path: Path) -> Path:
