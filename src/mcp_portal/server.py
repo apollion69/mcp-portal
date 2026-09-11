@@ -70,17 +70,25 @@ def _windows_path(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z]:\\", value) or value.startswith("\\\\wsl"))
 
 
+def _host_is_native_windows() -> bool:
+    return os.name == "nt"
+
+
 def normalize_path(value: str) -> str:
-    if _windows_path(value):
-        try:
-            _, out, _ = delegate.run_bounded(
-                ["wslpath", "-u", value], b"", delegate.portal_home(), os.environ.copy(), 5, 8192
-            )
-            line = out.strip()
-            if line:
-                return line
-        except delegate.Refused:
-            pass
+    if not _windows_path(value):
+        return value
+    # Native Windows: paths are already in the local filesystem namespace.
+    if _host_is_native_windows():
+        return value
+    try:
+        _, out, _ = delegate.run_bounded(
+            ["wslpath", "-u", value], b"", delegate.portal_home(), os.environ.copy(), 5, 8192
+        )
+        line = out.strip()
+        if line:
+            return line
+    except delegate.Refused:
+        pass
     return value
 
 

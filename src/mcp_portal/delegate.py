@@ -575,8 +575,12 @@ def checked_answer(text, request):
 
 def run_bounded(argv, stdin, cwd, env, timeout, max_output=MAX_STREAM):
     """Bound output while running; terminate the entire POSIX child group."""
-    p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         cwd=cwd, env=env, start_new_session=(os.name != "nt"))
+    try:
+        p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             cwd=cwd, env=env, start_new_session=(os.name != "nt"))
+    except FileNotFoundError as exc:
+        base = os.path.basename(argv[0]) if argv else "?"
+        raise Refused(f"SPAWN_FAILED {base}") from exc
     events = queue.Queue(maxsize=64)
     stop = threading.Event()
     def emit(item):
@@ -805,7 +809,10 @@ def execute(request, route="auto", worker=DEFAULT_WORKER, tool="bulk_read", mode
         if _use_wsl_bridge(route):
             if os.name != "nt":
                 result = backend(request)
+            elif os.environ.get("MCP_PORTAL_CLI") or _windows_prefers_local_cli():
+                result = backend(request)
             else:
+                # Worker runs inside WSL; Linux Python is python3, not the Windows interpreter.
                 argv = ["wsl.exe", "-d", _WSL_DISTRO, "--cd", _WSL_CD, "--", "python3", "-m", "mcp_portal.delegate", "--worker"]
                 code, out, _ = run_bounded(argv, encoded(request), str(Path.home()), os.environ.copy(), request["timeout"] + 20)
                 try:

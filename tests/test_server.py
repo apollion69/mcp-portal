@@ -7,6 +7,7 @@ import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
+from unittest.mock import patch
 
 from mcp_portal import delegate, server
 
@@ -158,6 +159,25 @@ class ServerTests(unittest.TestCase):
         self.assertIn("model_policy", payload)
         self.assertEqual(payload["model_policy"]["preferred"][0], "composer-2.5")
         self.assertIn("-fast", payload["model_policy"]["forbid_suffixes"][0])
+
+    def test_normalize_path_skips_wslpath_on_native_windows(self):
+        with patch.object(server, "_host_is_native_windows", return_value=True), patch.object(
+            delegate, "run_bounded"
+        ) as run_bounded:
+            path = "C:\\Users\\runner\\workspace\\fixture.txt"
+            self.assertEqual(server.normalize_path(path), path)
+            run_bounded.assert_not_called()
+
+    def test_stub_cli_spawn_argv_starts_with_sys_executable_on_windows(self):
+        """backend() builds argv via _cli_argv; on Windows a .py stub must run under sys.executable."""
+        stub = self.home / "stub-cli.py"
+        with patch.object(delegate.os, "name", "nt"):
+            argv = delegate._cli_argv(
+                stub,
+                ["--print", "--mode", "ask", "--output-format", "stream-json", "--model", "composer-2.5"],
+            )
+        self.assertEqual(argv[0], sys.executable)
+        self.assertEqual(Path(argv[1]), stub)
 
     def test_garbage_stdin_does_not_crash(self):
         proc = subprocess.run(
