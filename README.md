@@ -10,16 +10,21 @@ On 2026-09-08, `composer-2.5-fast` generated roughly **5× faster** than a front
 
 ## Quick start
 
+Until the first PyPI release lands, install straight from GitHub:
+
 ```bash
-uvx mcp-portal
+uvx --from git+https://github.com/apollion69/mcp-portal mcp-portal
 ```
 
-Other installs:
+After the PyPI release the short forms work:
 
 ```bash
+uvx mcp-portal
 pipx install mcp-portal
 pip install mcp-portal
 ```
+
+Requirements: Python 3.10+, the [Cursor CLI](https://cursor.com/docs/cli) (`cursor-agent`) installed and logged in.
 
 Doctor (CLI inventory, no model call):
 
