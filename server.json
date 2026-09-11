@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.apollion69/mcp-portal",
+  "description": "Cursor CLI delegation for verified bulk reads and reference-driven code generation.",
+  "repository": {
+    "url": "https://github.com/apollion69/mcp-portal",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "mcp-portal",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "uvx",
+      "environmentVariables": [
+        {
+          "name": "MCP_PORTAL_HOME",
+          "description": "Optional cache and evidence directory (default ~/.cache/mcp-portal)"
+        },
+        {
+          "name": "MCP_PORTAL_CLI",
+          "description": "Optional path to cursor-agent or agent executable"
+        }
+      ]
+    }
+  ]
+}
