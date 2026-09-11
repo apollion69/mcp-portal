@@ -36,10 +36,7 @@ mcp-portal-doctor = "mcp_portal.probe:main"
 mcp-portal-bulk-read = "mcp_portal.bulk_read:main"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["mcp_portal"]
-
-[tool.hatch.build.targets.wheel.sources]
-"src/mcp_portal" = "mcp_portal"
+packages = ["src/mcp_portal"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

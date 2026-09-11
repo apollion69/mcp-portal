@@ -25,3 +25,23 @@ jobs:
           pip install -e .
       - name: pytest
         run: python -m pytest -q
+
+  wheel-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build wheel
+        run: uv build --wheel -o dist
+      - name: Install wheel in fresh venv and smoke-test CLI
+        run: |
+          python3 -m venv /tmp/mcp-portal-smoke-venv
+          /tmp/mcp-portal-smoke-venv/bin/pip install --upgrade pip
+          /tmp/mcp-portal-smoke-venv/bin/pip install dist/*.whl
+          /tmp/mcp-portal-smoke-venv/bin/mcp-portal-doctor | head -n 5
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
+          list='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+          out=$(printf '%s\n%s\n' "$init" "$list" | /tmp/mcp-portal-smoke-venv/bin/mcp-portal)
+          echo "$out" | grep -q bulk_read
+          echo "$out" | grep -q code_write
+          echo "$out" | grep -q status
