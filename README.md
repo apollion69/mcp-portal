@@ -2,7 +2,7 @@
 
 <!-- mcp-name: io.github.apollion69/mcp-portal -->
 
-[![CI](https://github.com/apollion69/mcp-portal/actions/workflows/ci.yml/badge.svg)](https://github.com/apollion69/mcp-portal/actions/workflows/ci.yml)
+[![CI](https://github.com/apollion69/mcp-portal/actions/workflows/ci.yml/badge.svg)](https://github.com/apollion69/mcp-portal/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/mcp-portal.svg)](https://pypi.org/project/mcp-portal/)
 
 **mcp-portal** is a stdio [Model Context Protocol](https://modelcontextprotocol.io/) server that lets a frontier agent (Claude Code, Codex, Cursor, or any MCP host) delegate two jobs to the **Cursor CLI on its own quota**: bounded **`bulk_read`** (read explicitly selected files, answer with verified quotes) and **`code_write`** (generate boilerplate from a reference file + spec; the **server** writes the target file). Python stdlib only—no Node runtime and no MCP SDK dependency.
 
@@ -10,18 +10,16 @@ On 2026-09-08, `composer-2.5-fast` generated roughly **5× faster** than a front
 
 ## Quick start
 
-Until the first PyPI release lands, install straight from GitHub:
+```bash
+uvx mcp-portal
+```
+
+Also available as `pipx install mcp-portal` / `pip install mcp-portal`, and listed in the
+[MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.apollion69/mcp-portal`.
+To run the development head instead of the release:
 
 ```bash
 uvx --from git+https://github.com/apollion69/mcp-portal mcp-portal
-```
-
-After the PyPI release the short forms work:
-
-```bash
-uvx mcp-portal
-pipx install mcp-portal
-pip install mcp-portal
 ```
 
 Requirements: Python 3.10+, the [Cursor CLI](https://cursor.com/docs/cli) (`cursor-agent`) installed and logged in.
