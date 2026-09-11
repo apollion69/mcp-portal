@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "preferred": ["composer-2.5", "cursor-grok-4.6-medium", "cursor-grok-4.6-high"],
+  "cursor_native_prefixes": ["composer-", "cursor-grok-"],
+  "forbid_suffixes": ["-fast"],
+  "allow_explicit_other_vendors": true,
+  "availability_probe_ttl_seconds": 600,
+  "note": "operator 2026-09-11: Cursor-native first (largest limits), never -fast, any reasoning tier; other vendors only when named explicitly and listed as available"
+}
